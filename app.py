@@ -1,52 +1,64 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
 import pytz
+import requests
+from datetime import datetime
 
-st.set_page_config(page_title="Quotex Bot - Naveed", layout="centered")
-tz = pytz.timezone('Asia/Dubai')
-now = datetime.now(tz)
-st.success(f"📍 Sharjah Area 6 | 🕒 Dubai: {now.strftime('%H:%M:%S')}")
+st.set_page_config(page_title="Quotex King Bot - Dubai", page_icon="👑", layout="centered")
+DUBAI_TZ = pytz.timezone('Asia/Dubai')
 
-st.title("📈 Quotex Live Bot - Naveed")
-st.caption("LIVE BUY/SELL - 1 Minute")
+BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"
+CHAT_ID = "PASTE_YOUR_CHAT_ID_HERE"
 
-pair = st.selectbox("Pair Select Karo:", ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","BTC/USD"])
-mp = {"EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"JPY=X","AUD/USD":"AUDUSD=X","BTC/USD":"BTC-USD"}
+def send_telegram(message):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        requests.post(url, data=data, timeout=10)
+        return True
+    except:
+        return False
 
-@st.cache_data(ttl=30)
-def get_df(sym):
-    return yf.download(sym, period="1d", interval="1m", progress=False, auto_adjust=True)
+st.title("👑 Quotex King Bot - Dubai Time")
+st.markdown(f"**Dubai Time:** {datetime.now(DUBAI_TZ).strftime('%Y-%m-%d %I:%M:%S %p')}")
+st.sidebar.header("⚙️ Settings")
+pair = st.sidebar.selectbox("Pair", ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "EUR/JPY", "GBP/JPY", "Gold (XAU/USD)", "BTC-USD"])
+symbol_map = {"EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "JPY=X", "AUD/USD": "AUDUSD=X", "USD/CAD": "CAD=X", "EUR/JPY": "EURJPY=X", "GBP/JPY": "GBPJPY=X", "Gold (XAU/USD)": "GC=F", "BTC-USD": "BTC-USD"}
+timeframe = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m"], index=1)
+st.divider()
 
-df = get_df(mp[pair])
+yf_symbol = symbol_map.get(pair, "EURUSD=X")
+interval = "1m" if timeframe=="1m" else "5m" if timeframe=="5m" else "15m"
 
-close_col = df['Close']
-if isinstance(close_col, pd.DataFrame):
-    close_col = close_col.iloc[:,0]
-
-price = float(close_col.iloc[-1])
-
-rsi_val = 50.0
-try:
-    delta = close_col.diff()
-    gain = delta.where(delta>0,0).rolling(14).mean()
-    loss = -delta.where(delta<0,0).rolling(14).mean()
-    rs = gain/loss
-    rsi = 100-(100/(1+rs))
-    rsi_val = float(rsi.iloc[-1])
-except:
-    pass
-
-st.metric(pair, f"{price:.5f}", f"RSI {rsi_val:.1f}")
-
-if rsi_val >= 50:
-    st.markdown(f"<div style='background:#22c55e;padding:35px;border-radius:20px;text-align:center;color:white'><h1>🟢 BUY - {pair}</h1><h2>NEXT 1 MIN UP ⬆️</h2><p>RSI: {rsi_val:.1f}</p></div>", unsafe_allow_html=True)
-else:
-    st.markdown(f"<div style='background:#ef4444;padding:35px;border-radius:20px;text-align:center;color:white'><h1>🔴 SELL - {pair}</h1><h2>NEXT 1 MIN DOWN ⬇️</h2><p>RSI: {rsi_val:.1f}</p></div>", unsafe_allow_html=True)
-
-st.line_chart(close_col.tail(60))
-
-if st.button("🔄 Refresh Signal"):
-    st.cache_data.clear()
-    st.rerun()
+with st.spinner(f"{pair} ka data..."):
+    df = yf.download(yf_symbol, period="1d", interval=interval, progress=False)
+    if df.empty:
+        st.error("Data nahi mil raha!")
+        st.stop()
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['MA50'] = df['Close'].rolling(50).mean()
+    last_close = float(df['Close'].iloc[-1])
+    last_ma20 = float(df['MA20'].iloc[-1])
+    last_ma50 = float(df['MA50'].iloc[-1])
+    signal = "WAIT"
+    confidence = 75
+    if last_close > last_ma20 and last_ma20 > last_ma50:
+        signal = "BUY 🟢"
+        confidence = 88
+    elif last_close < last_ma20 and last_ma20 < last_ma50:
+        signal = "SELL 🔴"
+        confidence = 86
+    c1,c2 = st.columns(2)
+    c1.metric(f"{pair} Price", f"{last_close:.5f}")
+    c2.metric("Signal", signal)
+    st.line_chart(df['Close'].tail(100))
+    st.subheader(f"Signal: {signal} | Confidence: {confidence}%")
+    if signal != "WAIT":
+        msg = f"👑 *Quotex King Signal*\n\nPair: {pair}\nSignal: {signal}\nPrice: {last_close}\nConfidence: {confidence}%\nTime: {datetime.now(DUBAI_TZ).strftime('%I:%M %p')} Dubai"
+        if st.button("📤 Telegram Pe Bhejo"):
+            if send_telegram(msg):
+                st.success("Telegram pe bhej diya! ✅")
+                st.balloons()
+            else:
+                st.error("Token/ID galat hai!")
