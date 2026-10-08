@@ -1,3 +1,5 @@
 streamlit
 yfinance
 pytz
+pandas
+requests
